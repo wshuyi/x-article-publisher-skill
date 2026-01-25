@@ -4,7 +4,7 @@
 
 > Publish Markdown articles to X (Twitter) Articles with one command. Say goodbye to tedious rich text editing.
 
-**v1.1.0** — Now with block-index positioning for precise image placement
+**v1.2.0** — Now with divider support, table-to-image, Mermaid support, and cross-platform clipboard
 
 ---
 
@@ -82,10 +82,17 @@ Now, each image has a `block_index` indicating exactly which block element it fo
 | Playwright MCP | Browser automation |
 | X Premium Plus | Required for Articles feature |
 | Python 3.9+ | With dependencies below |
-| macOS | Currently macOS only |
+| OS | macOS or Windows |
 
 ```bash
+# macOS
 pip install Pillow pyobjc-framework-Cocoa
+
+# Windows
+pip install Pillow pywin32 clip-util
+
+# For Mermaid diagrams (optional)
+npm install -g @mermaid-js/mermaid-cli
 ```
 
 ---
@@ -161,17 +168,20 @@ Help me post this article to X Articles: ~/Documents/my-post.md
 
 ## Supported Markdown
 
-| Syntax | Result |
-|--------|--------|
-| `# H1` | Article title (extracted, not in body) |
-| `## H2` | Section headers |
-| `**bold**` | **Bold text** |
-| `*italic*` | *Italic text* |
-| `[text](url)` | Hyperlinks |
-| `> quote` | Blockquotes |
-| `- item` | Unordered lists |
-| `1. item` | Ordered lists |
-| `![](img.jpg)` | Images (first = cover) |
+| Syntax | Result | Notes |
+|--------|--------|-------|
+| `# H1` | Article title | Extracted, not in body |
+| `## H2` | Section headers | Native support |
+| `**bold**` | **Bold text** | Native support |
+| `*italic*` | *Italic text* | Native support |
+| `[text](url)` | Hyperlinks | Native support |
+| `> quote` | Blockquotes | Native support |
+| `- item` | Unordered lists | Native support |
+| `1. item` | Ordered lists | Native support |
+| `![](img.jpg)` | Images | First = cover |
+| `---` | Dividers | Via Insert menu (v1.2) |
+| Tables | PNG images | Via table_to_image.py (v1.2) |
+| Mermaid | PNG images | Via mmdc CLI (v1.2) |
 
 ---
 
@@ -239,8 +249,9 @@ x-article-publisher-skill/
 │   └── x-article-publisher/
 │       ├── SKILL.md             # Skill instructions
 │       └── scripts/
-│           ├── parse_markdown.py    # Extracts block_index
-│           └── copy_to_clipboard.py
+│           ├── parse_markdown.py    # Extracts block_index + dividers
+│           ├── copy_to_clipboard.py # Cross-platform clipboard
+│           └── table_to_image.py    # Markdown table → PNG (v1.2)
 ├── docs/
 │   └── GUIDE.md                 # Detailed guide
 ├── README.md                    # This file
@@ -256,7 +267,7 @@ x-article-publisher-skill/
 A: X Articles is exclusive to Premium Plus subscribers.
 
 **Q: Windows/Linux support?**
-A: Currently macOS only. PRs welcome for cross-platform clipboard support.
+A: Windows is now supported (v1.2). Linux support is still in progress — PRs welcome!
 
 **Q: Image upload failed?**
 A: Check: valid path, supported format (jpg/png/gif/webp), stable network.
@@ -283,6 +294,13 @@ A: `browser_wait_for textGone="..."` returns as soon as the text disappears. The
 
 ## Changelog
 
+### v1.2.0 (2025-01)
+- **Divider support**: Detect `---` in Markdown, insert via X Articles menu
+- **Table to image**: New `table_to_image.py` script converts Markdown tables to PNG
+- **Mermaid support**: Documentation for using `mmdc` to convert diagrams
+- **YAML frontmatter**: Automatically skip frontmatter in Markdown files
+- **Windows support**: Cross-platform clipboard operations (pywin32 + clip-util)
+
 ### v1.1.0 (2025-12)
 - **Block-index positioning**: Replace text matching with precise element indices
 - **Reverse insertion order**: Prevent index shifts when inserting multiple images
@@ -304,6 +322,21 @@ MIT License - see [LICENSE](LICENSE)
 ## Author
 
 [wshuyi](https://github.com/wshuyi)
+
+---
+
+## Acknowledgments
+
+v1.2.0 features were inspired by and adapted from:
+
+- **[sugarforever/01coder-agent-skills](https://github.com/sugarforever/01coder-agent-skills)** — The `publish-x-article` skill contributed ideas for:
+  - Divider detection and menu-based insertion
+  - Table-to-image conversion script
+  - Mermaid diagram support documentation
+  - YAML frontmatter handling
+  - Windows clipboard implementation
+
+Thank you to the community for building upon and improving this skill!
 
 ---
 

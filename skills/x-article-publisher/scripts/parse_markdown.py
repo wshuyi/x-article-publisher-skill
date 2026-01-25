@@ -6,7 +6,8 @@ Extracts:
 - Title (from first H1/H2 or first line)
 - Cover image (first image)
 - Content images with block index for precise positioning
-- HTML content (images stripped)
+- Dividers (---) with block index for menu insertion
+- HTML content (images and dividers stripped)
 
 Usage:
     python parse_markdown.py <markdown_file> [--output json|html]
@@ -19,12 +20,18 @@ Output (JSON):
         {"path": "/path/to/img.jpg", "block_index": 3, "after_text": "context..."},
         ...
     ],
+    "dividers": [
+        {"block_index": 7, "after_text": "context..."},
+        ...
+    ],
     "html": "<p>Content...</p><h2>Section</h2>...",
     "total_blocks": 25
 }
 
-The block_index indicates which block element (0-indexed) the image should follow.
+The block_index indicates which block element (0-indexed) the image/divider should follow.
 This allows precise positioning without relying on text matching.
+
+Note: Dividers must be inserted via X Articles' Insert > Divider menu, not HTML <hr> tags.
 """
 
 import argparse
@@ -32,7 +39,39 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 from pathlib import Path
+
+
+# Common search directories for missing images
+SEARCH_DIRS = [
+    Path.home() / "Downloads",
+    Path.home() / "Desktop",
+    Path.home() / "Pictures",
+]
+
+
+def find_image_file(original_path: str, filename: str) -> tuple[str, bool]:
+    """Find an image file, searching common directories if not found at original path.
+    
+    Args:
+        original_path: The resolved absolute path from markdown
+        filename: Just the filename to search for
+    
+    Returns:
+        (found_path, exists): The path to use and whether file exists
+    """
+    if os.path.isfile(original_path):
+        return original_path, True
+    
+    for search_dir in SEARCH_DIRS:
+        candidate = search_dir / filename
+        if candidate.is_file():
+            print(f"[parse_markdown] Image not found at '{original_path}', using '{candidate}' instead", file=sys.stderr)
+            return str(candidate), True
+    
+    print(f"[parse_markdown] WARNING: Image not found: '{original_path}' (also searched {[str(d) for d in SEARCH_DIRS]})", file=sys.stderr)
+    return original_path, False
 
 
 def split_into_blocks(markdown: str) -> list[str]:
@@ -77,6 +116,14 @@ def split_into_blocks(markdown: str) -> list[str]:
                 current_block = []
             continue
 
+        # Horizontal rule (divider) is its own block
+        if re.match(r'^---+$', stripped):
+            if current_block:
+                blocks.append('\n'.join(current_block))
+                current_block = []
+            blocks.append('___DIVIDER___')
+            continue
+
         # Headers, blockquotes are their own blocks
         if stripped.startswith(('#', '>')):
             if current_block:
@@ -105,53 +152,70 @@ def split_into_blocks(markdown: str) -> list[str]:
     return blocks
 
 
-def extract_images_with_block_index(markdown: str, base_path: Path) -> tuple[list[dict], str, int]:
-    """Extract images with their block index position.
+def extract_images_and_dividers(markdown: str, base_path: Path) -> tuple[list[dict], list[dict], str, int]:
+    """Extract images and dividers with their block index positions.
 
     Returns:
-        (image_list, markdown_without_images, total_blocks)
+        (image_list, divider_list, markdown_without_images_and_dividers, total_blocks)
     """
     blocks = split_into_blocks(markdown)
     images = []
+    dividers = []
     clean_blocks = []
 
     img_pattern = re.compile(r'^!\[([^\]]*)\]\(([^)]+)\)$')
 
     for i, block in enumerate(blocks):
-        match = img_pattern.match(block.strip())
+        block_stripped = block.strip()
+
+        # Check for divider
+        if block_stripped == '___DIVIDER___':
+            block_index = len(clean_blocks)
+            after_text = ""
+            if clean_blocks:
+                prev_block = clean_blocks[-1].strip()
+                lines = [l for l in prev_block.split('\n') if l.strip()]
+                after_text = lines[-1][:80] if lines else ""
+            dividers.append({
+                "block_index": block_index,
+                "after_text": after_text
+            })
+            continue
+
+        match = img_pattern.match(block_stripped)
         if match:
             alt_text = match.group(1)
             img_path = match.group(2)
 
-            # Resolve relative paths
             if not os.path.isabs(img_path):
-                full_path = str(base_path / img_path)
+                resolved_path = str(base_path / img_path)
             else:
-                full_path = img_path
+                resolved_path = img_path
 
-            # block_index is the index in clean_blocks (without images)
-            # i.e., this image should be inserted after clean_blocks[block_index-1]
+            filename = os.path.basename(urllib.parse.unquote(img_path))
+            full_path, exists = find_image_file(resolved_path, filename)
+
             block_index = len(clean_blocks)
 
-            # Get context from previous block for reference
             after_text = ""
             if clean_blocks:
                 prev_block = clean_blocks[-1].strip()
-                # Get last line of previous block
                 lines = [l for l in prev_block.split('\n') if l.strip()]
                 after_text = lines[-1][:80] if lines else ""
 
             images.append({
                 "path": full_path,
+                "original_path": resolved_path,
+                "exists": exists,
                 "alt": alt_text,
                 "block_index": block_index,
-                "after_text": after_text  # Keep for reference/debugging
+                "after_text": after_text
             })
         else:
             clean_blocks.append(block)
 
     clean_markdown = '\n\n'.join(clean_blocks)
-    return images, clean_markdown, len(clean_blocks)
+    return images, dividers, clean_markdown, len(clean_blocks)
 
 
 def extract_title(markdown: str) -> tuple[str, str]:
@@ -258,29 +322,39 @@ def parse_markdown_file(filepath: str) -> dict:
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
 
+    # Skip YAML frontmatter if present
+    if content.startswith('---'):
+        end_marker = content.find('---', 3)
+        if end_marker != -1:
+            content = content[end_marker + 3:].strip()
+
     # Extract title first (and remove H1 from markdown)
     title, content = extract_title(content)
 
-    # Extract images with block indices
-    images, clean_markdown, total_blocks = extract_images_with_block_index(content, base_path)
+    # Extract images and dividers with block indices
+    images, dividers, clean_markdown, total_blocks = extract_images_and_dividers(content, base_path)
 
     # Convert to HTML
     html = markdown_to_html(clean_markdown)
 
-    # Separate cover image from content images
     cover_image = images[0]["path"] if images else None
+    cover_exists = images[0]["exists"] if images else True
     content_images = images[1:] if len(images) > 1 else []
 
-    # Adjust block_index for content images (subtract 1 since cover image is removed)
-    # The first content image's block_index was calculated including cover image's position
+    missing = [img for img in images if not img["exists"]]
+    if missing:
+        print(f"[parse_markdown] WARNING: {len(missing)} image(s) not found", file=sys.stderr)
 
     return {
         "title": title,
         "cover_image": cover_image,
+        "cover_exists": cover_exists,
         "content_images": content_images,
+        "dividers": dividers,
         "html": html,
         "total_blocks": total_blocks,
-        "source_file": str(path.absolute())
+        "source_file": str(path.absolute()),
+        "missing_images": len(missing)
     }
 
 

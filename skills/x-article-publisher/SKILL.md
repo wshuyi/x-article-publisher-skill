@@ -1,6 +1,7 @@
 ---
 name: x-article-publisher
-description: Publish Markdown articles to X (Twitter) Articles editor with proper formatting. Use when user wants to publish a Markdown file/URL to X Articles, or mentions "publish to X", "post article to Twitter", "X article", or wants help with X Premium article publishing. Handles cover image upload and converts Markdown to rich text automatically.
+description: |
+  Publish Markdown articles to X (Twitter) Articles editor with proper formatting. Use when user wants to publish a Markdown file/URL to X Articles, or mentions "publish to X", "post article to Twitter", "X article", or wants help with X Premium article publishing. Handles cover image upload and converts Markdown to rich text automatically.
 ---
 
 # X Article Publisher
@@ -14,6 +15,7 @@ Publish Markdown content to X (Twitter) Articles editor, preserving formatting w
 - Python 3.9+ with dependencies:
   - macOS: `pip install Pillow pyobjc-framework-Cocoa`
   - Windows: `pip install Pillow pywin32 clip-util`
+- For Mermaid diagrams: `npm install -g @mermaid-js/mermaid-cli`
 
 ## Scripts
 
@@ -24,10 +26,10 @@ Parse Markdown and extract structured data:
 ```bash
 python parse_markdown.py <markdown_file> [--output json|html] [--html-only]
 ```
-Returns JSON with: title, cover_image, content_images (with block_index for positioning), html, total_blocks
+Returns JSON with: title, cover_image, content_images, **dividers** (with block_index for positioning), html, total_blocks
 
 ### copy_to_clipboard.py
-Copy image or HTML to system clipboard:
+Copy image or HTML to system clipboard (cross-platform):
 ```bash
 # Copy image (with optional compression)
 python copy_to_clipboard.py image /path/to/image.jpg [--quality 80]
@@ -36,19 +38,49 @@ python copy_to_clipboard.py image /path/to/image.jpg [--quality 80]
 python copy_to_clipboard.py html --file /path/to/content.html
 ```
 
+### table_to_image.py
+Convert Markdown table to PNG image:
+```bash
+python table_to_image.py <input.md> <output.png> [--scale 2]
+```
+Use when X Articles doesn't support native table rendering or for consistent styling.
+
+## Pre-Processing (Optional)
+
+Before publishing, scan the Markdown for elements that need conversion:
+
+### Tables → PNG
+```bash
+# Extract table to temp file, then convert
+python ~/.claude/skills/x-article-publisher/scripts/table_to_image.py /tmp/table.md /tmp/table.png
+# Replace table in markdown with: ![Table](/tmp/table.png)
+```
+
+### Mermaid Diagrams → PNG
+```bash
+# Extract mermaid block to .mmd file, then convert
+mmdc -i /tmp/diagram.mmd -o /tmp/diagram.png -b white -s 2
+# Replace mermaid block with: ![Diagram](/tmp/diagram.png)
+```
+
+### Dividers (---)
+Dividers are automatically detected by `parse_markdown.py` and output in the `dividers` array. They must be inserted via X Articles' **Insert > Divider** menu (HTML `<hr>` tags are ignored by X).
+
 ## Workflow
 
-**Strategy: "先文后图" (Text First, Images Later)**
+**Strategy: "先文后图后分割线" (Text First, Images Second, Dividers Last)**
 
-For articles with multiple images, paste ALL text content first, then insert images at correct positions using block index.
+For articles with images and dividers, paste ALL text content first, then insert images and dividers at correct positions using block index.
 
-1. Parse Markdown with Python script → get title, images with block_index, HTML
-2. Navigate to X Articles editor
-3. Upload cover image (first image)
-4. Fill title
-5. Copy HTML to clipboard (Python) → Paste with Cmd+V
-6. Insert content images at positions specified by block_index
-7. Save as draft (NEVER auto-publish)
+1. **(Optional)** Pre-process: Convert tables/mermaid to images
+2. Parse Markdown with Python script → get title, images, **dividers** with block_index, HTML
+3. Navigate to X Articles editor
+4. Upload cover image (first image)
+5. Fill title
+6. Copy HTML to clipboard (Python) → Paste with Cmd+V
+7. Insert content images at positions specified by block_index
+8. **Insert dividers at positions specified by block_index** (via Insert > Divider menu)
+9. Save as draft (NEVER auto-publish)
 
 ## 高效执行原则 (Efficiency Guidelines)
 
@@ -124,12 +156,14 @@ Output JSON:
 {
   "title": "Article Title",
   "cover_image": "/path/to/first-image.jpg",
+  "cover_exists": true,
   "content_images": [
-    {"path": "/path/to/img2.jpg", "block_index": 5, "after_text": "context for debugging..."},
-    {"path": "/path/to/img3.jpg", "block_index": 12, "after_text": "another context..."}
+    {"path": "/path/to/img2.jpg", "original_path": "/md/dir/assets/img2.jpg", "exists": true, "block_index": 5, "after_text": "context..."},
+    {"path": "/path/to/img3.jpg", "original_path": "/md/dir/assets/img3.jpg", "exists": true, "block_index": 12, "after_text": "another..."}
   ],
   "html": "<p>Content...</p><h2>Section</h2>...",
-  "total_blocks": 45
+  "total_blocks": 45,
+  "missing_images": 0
 }
 ```
 
@@ -137,6 +171,10 @@ Output JSON:
 - `block_index`: The image should be inserted AFTER block element at this index (0-indexed)
 - `total_blocks`: Total number of block elements in the HTML
 - `after_text`: Kept for reference/debugging only, NOT for positioning
+- `exists`: Whether the image file was found (if false, upload will fail)
+- `original_path`: The path resolved from Markdown (before auto-search)
+- `path`: The actual path to use (may differ from original_path if auto-searched)
+- `missing_images`: Count of images not found anywhere
 
 Save HTML to temp file for clipboard:
 ```bash
@@ -144,6 +182,26 @@ python parse_markdown.py article.md --html-only > /tmp/article_html.html
 ```
 
 ## Step 2: Open X Articles Editor
+
+### 浏览器错误处理
+
+如果遇到 `Error: Browser is already in use` 错误：
+
+```
+# 方案1：先关闭浏览器再重新打开
+browser_close
+browser_navigate: https://x.com/compose/articles
+
+# 方案2：如果 browser_close 无效（锁定），提示用户手动关闭 Chrome
+
+# 方案3：使用已有标签页，直接导航
+browser_tabs action=list  # 查看现有标签
+browser_navigate: https://x.com/compose/articles  # 在当前标签导航
+```
+
+**最佳实践**：每次开始前先用 `browser_tabs action=list` 检查状态，避免创建多余空白标签。
+
+### 导航到编辑器
 
 ```
 browser_navigate: https://x.com/compose/articles
@@ -200,21 +258,17 @@ browser_press_key: Meta+v
 
 This preserves all rich text formatting (H2, bold, links, lists).
 
-## Step 6: Insert Content Images (Block Index Positioning)
+## Step 6: Insert Content Images (Text Search Positioning)
 
-**关键改进**: 使用 `block_index` 精确定位，而非依赖文字匹配。
+**推荐方法**: 使用 `after_text` 文字搜索定位，比 `block_index` 更直观可靠。
 
 ### 定位原理
 
-粘贴 HTML 后，编辑器中的内容结构为一系列块元素（段落、标题、引用等）。每张图片的 `block_index` 表示它应该插入在第 N 个块元素之后。
+每张图片的 `after_text` 字段记录了它前一个段落的末尾文字（最多80字符）。在编辑器中搜索包含该文字的段落，点击后插入图片。
 
 ### 操作步骤
 
-1. **获取所有块元素**: 使用 browser_snapshot 获取编辑器内容，找到 textbox 下的所有子元素
-2. **按索引定位**: 根据 `block_index` 点击对应的块元素
-3. **粘贴图片**: 复制图片到剪贴板后粘贴
-
-For each content image (from `content_images` array):
+For each content image (from `content_images` array), **按 block_index 从大到小的顺序**：
 
 ```bash
 # 1. Copy image to clipboard (with compression)
@@ -222,46 +276,86 @@ python ~/.claude/skills/x-article-publisher/scripts/copy_to_clipboard.py image /
 ```
 
 ```
-# 2. Click the block element at block_index
-# Example: if block_index=5, click the 6th block element (0-indexed)
-browser_click on the element at position block_index in the editor
+# 2. 在 browser_snapshot 中搜索包含 after_text 的段落
+#    找到该段落的 ref
 
-# 3. Paste image
+# 3. Click the paragraph containing after_text
+browser_click: element="paragraph with target text", ref=<paragraph_ref>
+
+# 4. **关键步骤**: 按 End 键移动光标到行尾
+#    这一步非常重要！避免点击到段落中的链接导致位置偏移
+browser_press_key: End
+
+# 5. Paste image
 browser_press_key: Meta+v
 
-# 4. Wait for upload (use short time, returns immediately when done)
-browser_wait_for textGone="正在上传媒体" time=2
+# 6. Wait for upload (only use textGone, no time parameter)
+browser_wait_for textGone="正在上传媒体"
 ```
+
+### 为什么需要按 End 键？
+
+**问题**: 当段落包含链接时（如 `[链接文字](url)`），点击段落可能会：
+- 触发链接编辑弹窗
+- 将光标定位在链接内部而非段落末尾
+
+**解决方案**: 点击段落后立即按 `End` 键：
+- 确保光标移动到段落末尾
+- 避免链接干扰
+- 图片将正确插入在该段落之后
 
 ### 定位策略
 
-在 browser_snapshot 返回的结构中，编辑器内容通常是：
+在 browser_snapshot 返回的结构中，搜索 `after_text` 的关键词：
+
 ```yaml
-textbox [ref=xxx]:
-  generic [ref=block0]:  # block_index 0
-    - paragraph content
-  heading [ref=block1]:   # block_index 1
-    - h2 content
-  generic [ref=block2]:  # block_index 2
-    - paragraph content
+textbox [ref=editor]:
+  generic [ref=p1]:
+    - StaticText: "元旦假期我在家里翻手机相册..."  # 如果 after_text 包含这段文字，点击 p1
+  heading [ref=h1]:
+    - StaticText: "演示"
+  generic [ref=p2]:
+    - StaticText: "这东西到底有多省事儿？"
+    - link [ref=link1]: "Claude Code"  # 注意：段落可能包含链接
   ...
 ```
-
-要在 `block_index=5` 后插入图片：
-1. 找到编辑器 textbox 下的第 6 个子元素（索引从0开始）
-2. 点击该元素
-3. 粘贴图片
-
-**注意**: 每插入一张图片后，后续图片的实际位置会偏移。建议按 `block_index` **从大到小**的顺序插入图片，这样先插入的图片不会影响后续图片的索引。
 
 ### 反向插入示例
 
 如果有3张图片，block_index 分别为 5, 12, 27：
-1. 先插入 block_index=27 的图片
+1. 先插入 block_index=27 的图片（after_text 搜索 + End + 粘贴）
 2. 再插入 block_index=12 的图片
 3. 最后插入 block_index=5 的图片
 
-这样每次插入都不会影响前面已经定位好的位置。
+**从大到小插入**可以避免位置偏移问题。
+
+## Step 6.5: Insert Dividers (Via Menu)
+
+**重要**: Markdown 中的 `---` 分割线不能通过 HTML `<hr>` 标签粘贴（X Articles 会忽略它）。必须通过 X Articles 的 Insert 菜单插入。
+
+### 操作步骤
+
+For each divider (from `dividers` array), in **reverse order of block_index**:
+
+```
+# 1. Click the block element at block_index position
+browser_click on the element at position block_index in the editor
+
+# 2. Open Insert menu (Add Media button)
+browser_click on "Insert" or "添加媒体" button
+
+# 3. Click Divider menu item
+browser_click on "Divider" or "分割线" menuitem
+
+# Divider is inserted at cursor position
+```
+
+### 与图片的插入顺序
+
+建议先插入所有图片，再插入所有分割线。两者都按 block_index **从大到小**的顺序：
+
+1. 插入所有图片（从最大 block_index 开始）
+2. 插入所有分割线（从最大 block_index 开始）
 
 ## Step 7: Save Draft
 
@@ -276,20 +370,26 @@ textbox [ref=xxx]:
 2. **First image = cover** - Upload first image as cover image
 3. **Rich text conversion** - Always convert Markdown to HTML before pasting
 4. **Use clipboard API** - Paste via clipboard for proper formatting
-5. **Block index positioning** - Use block_index for precise image placement
-6. **Reverse order insertion** - Insert images from highest to lowest block_index
+5. **Block index positioning** - Use block_index for precise image/divider placement
+6. **Reverse order insertion** - Insert images and dividers from highest to lowest block_index
 7. **H1 title handling** - H1 is used as title only, not included in body
+8. **Dividers via menu** - Markdown `---` must be inserted via Insert > Divider menu (HTML `<hr>` is ignored)
 
 ## Supported Formatting
 
-- H2 headers (## )
-- Blockquotes (> )
-- Code blocks (``` ... ```) - converted to blockquotes since X doesn't support `<pre><code>`
-- Bold text (**)
-- Hyperlinks ([text](url))
-- Ordered lists (1. 2. 3.)
-- Unordered lists (- )
-- Paragraphs
+| Element | Support | Notes |
+|---------|---------|-------|
+| H2 (`##`) | Native | Section headers |
+| Bold (`**`) | Native | Strong emphasis |
+| Italic (`*`) | Native | Emphasis |
+| Links (`[](url)`) | Native | Hyperlinks |
+| Ordered lists | Native | 1. 2. 3. |
+| Unordered lists | Native | - bullets |
+| Blockquotes (`>`) | Native | Quoted text |
+| Code blocks | Converted | → Blockquotes |
+| Tables | Converted | → PNG images (use table_to_image.py) |
+| Mermaid | Converted | → PNG images (use mmdc) |
+| Dividers (`---`) | Menu insert | → Insert > Divider |
 
 ## Example Flow
 
@@ -336,20 +436,26 @@ python ~/.claude/skills/x-article-publisher/scripts/parse_markdown.py /path/to/a
 
 ### 等待策略
 
-**关键理解**: `browser_wait_for` 的 `textGone` 参数会在文字消失时**立即返回**，`time` 只是最大等待时间，不是固定等待时间。
+**重要发现**: Playwright MCP 的 `browser_wait_for` 实际行为是 **先等待 time 秒，再检查条件**，而非轮询！
 
-- ❌ 保守等待: `time=5` 或 `time=10`，如果上传只需2秒，剩余时间全浪费
-- ✅ 短间隔轮询: `time=2`，条件满足立即返回，最多等2秒
-
-```
-# 正确用法：短 time 值，条件满足立即返回
-browser_wait_for textGone="正在上传媒体" time=2
-
-# 错误用法：固定长时间等待
-browser_wait_for time=5  # 无条件等待5秒，浪费时间
+```javascript
+// 实际执行的代码：
+await new Promise(f => setTimeout(f, time * 1000));  // 先固定等待
+await page.getByText("xxx").waitFor({ state: 'hidden' });  // 再检查
 ```
 
-**原则**: 不要预设"需要等多久"，而是设置一个合理的最大值，让条件检测尽快返回。
+**正确用法**:
+- ✅ 只用 `textGone`，不设 `time`：让 Playwright 自己轮询等待
+- ✅ 只用 `time`：固定等待指定秒数
+- ❌ 同时用 `textGone` + `time`：会先等 time 秒再检查，浪费时间
+
+```
+# 推荐：只用 textGone，让它自动等待条件满足
+browser_wait_for textGone="正在上传媒体"
+
+# 或者：用 browser_snapshot 轮询检查状态
+# 每次操作后检查返回的页面状态，无需额外等待
+```
 
 ### 图片插入效率
 
@@ -361,3 +467,79 @@ browser_wait_for time=5  # 无条件等待5秒，浪费时间
 
 - **封面图**: 使用 browser_file_upload（因为有专门的上传按钮）
 - **内容图**: 使用 Python 剪贴板 + 粘贴（更高效）
+
+## 故障排除
+
+### MCP 连接问题
+
+如果 Playwright MCP 工具不可用（报错 `No such tool available` 或 `Not connected`）：
+
+**方案1：重新连接 MCP（推荐）**
+```
+执行 /mcp 命令，选择 playwright，选择 Restart
+```
+
+**方案2：清理残留进程后重连**
+```bash
+# 杀掉所有残留的 playwright 进程
+pkill -f "mcp-server-playwright"
+pkill -f "@playwright/mcp"
+
+# 然后执行 /mcp 重新连接
+```
+
+**配置文件位置**: `~/.claude/mcp_servers.json`
+
+### 浏览器错误处理
+
+如果遇到 `Error: Browser is already in use` 错误：
+
+```bash
+# 方案1：先关闭浏览器再重新打开
+browser_close
+browser_navigate: https://x.com/compose/articles
+
+# 方案2：杀掉 Chrome 进程
+pkill -f "Chrome.*--remote-debugging"
+# 然后重新 navigate
+```
+
+### 图片位置偏移
+
+如果图片插入位置不正确（特别是点击含链接的段落时）：
+
+**原因**: 点击段落时可能误触链接，导致光标位置错误
+
+**解决方案**: 点击后**必须按 End 键**移动光标到行尾
+
+```
+# 正确流程
+1. browser_click 点击目标段落
+2. browser_press_key: End        # 关键步骤！
+3. browser_press_key: Meta+v     # 粘贴图片
+4. browser_wait_for textGone="正在上传媒体"
+```
+
+### 图片路径找不到
+
+如果 Markdown 中的相对路径图片找不到（如 `./assets/image.png` 实际在其他位置）：
+
+**自动搜索**: `parse_markdown.py` 会自动在以下目录搜索同名文件：
+- `~/Downloads`
+- `~/Desktop`
+- `~/Pictures`
+
+**stderr 输出示例**:
+```
+[parse_markdown] Image not found at '/path/to/assets/img.png', using '/Users/xxx/Downloads/img.png' instead
+```
+
+**JSON 字段说明**:
+- `original_path`: Markdown 中指定的路径（解析后的绝对路径）
+- `path`: 实际使用的路径（如果自动搜索成功，会不同于 original_path）
+- `exists`: `true` 表示找到文件，`false` 表示未找到（上传会失败）
+
+**如果仍然找不到**:
+1. 检查 JSON 输出中的 `missing_images` 字段
+2. 手动将图片复制到 Markdown 文件同目录的 `assets/` 子目录
+3. 或修改 Markdown 中的图片路径为绝对路径

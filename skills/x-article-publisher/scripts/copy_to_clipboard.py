@@ -129,11 +129,7 @@ def copy_html_to_clipboard_macos(html: str) -> bool:
 # ============================================================================
 
 def copy_image_to_clipboard_windows(image_path: str, quality: int = None) -> bool:
-    """Copy image to Windows clipboard using CF_DIB format.
-    
-    Uses pywin32's win32clipboard module to set image data in Device Independent
-    Bitmap (DIB) format, which is the standard Windows clipboard format for images.
-    """
+    """Copy image to Windows clipboard using CF_DIB format."""
     try:
         import win32clipboard
         from PIL import Image
@@ -194,7 +190,7 @@ def copy_html_to_clipboard_windows(html: str) -> bool:
 
 
 # ============================================================================
-# Platform Detection and Function Selection
+# Platform Detection
 # ============================================================================
 
 def copy_image_to_clipboard(image_path: str, quality: int = None) -> bool:

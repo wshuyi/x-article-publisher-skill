@@ -4,7 +4,7 @@
 
 > 一键将 Markdown 文章发布到 X (Twitter) Articles，告别繁琐的富文本编辑。
 
-**v1.1.0** — 新增 block-index 精确定位，图片位置更准确
+**v1.2.0** — 新增分割线支持、表格转图片、Mermaid 支持、跨平台剪贴板
 
 ---
 
@@ -82,10 +82,17 @@ X Articles 编辑器（浏览器自动化）
 | Playwright MCP | 浏览器自动化 |
 | X Premium Plus | Articles 功能需要此订阅 |
 | Python 3.9+ | 需安装以下依赖 |
-| macOS | 目前仅支持 macOS |
+| 操作系统 | macOS 或 Windows |
 
 ```bash
+# macOS
 pip install Pillow pyobjc-framework-Cocoa
+
+# Windows
+pip install Pillow pywin32 clip-util
+
+# Mermaid 图表支持（可选）
+npm install -g @mermaid-js/mermaid-cli
 ```
 
 ---
@@ -161,17 +168,20 @@ cp -r x-article-publisher-skill/skills/x-article-publisher ~/.claude/skills/
 
 ## 支持的 Markdown 格式
 
-| 语法 | 效果 |
-|------|------|
-| `# H1` | 文章标题（提取后不含在正文中） |
-| `## H2` | 二级标题 |
-| `**粗体**` | **粗体文字** |
-| `*斜体*` | *斜体文字* |
-| `[文字](url)` | 超链接 |
-| `> 引用` | 引用块 |
-| `- 列表` | 无序列表 |
-| `1. 列表` | 有序列表 |
-| `![](img.jpg)` | 图片（第一张为封面） |
+| 语法 | 效果 | 说明 |
+|------|------|------|
+| `# H1` | 文章标题 | 提取后不含在正文中 |
+| `## H2` | 二级标题 | 原生支持 |
+| `**粗体**` | **粗体文字** | 原生支持 |
+| `*斜体*` | *斜体文字* | 原生支持 |
+| `[文字](url)` | 超链接 | 原生支持 |
+| `> 引用` | 引用块 | 原生支持 |
+| `- 列表` | 无序列表 | 原生支持 |
+| `1. 列表` | 有序列表 | 原生支持 |
+| `![](img.jpg)` | 图片 | 第一张为封面 |
+| `---` | 分割线 | 通过菜单插入 (v1.2) |
+| 表格 | PNG 图片 | 使用 table_to_image.py (v1.2) |
+| Mermaid | PNG 图片 | 使用 mmdc CLI (v1.2) |
 
 ---
 
@@ -239,8 +249,9 @@ x-article-publisher-skill/
 │   └── x-article-publisher/
 │       ├── SKILL.md             # Skill 核心指令
 │       └── scripts/
-│           ├── parse_markdown.py    # 提取 block_index
-│           └── copy_to_clipboard.py
+│           ├── parse_markdown.py    # 提取 block_index + 分割线
+│           ├── copy_to_clipboard.py # 跨平台剪贴板
+│           └── table_to_image.py    # 表格转 PNG (v1.2)
 ├── docs/
 │   └── GUIDE.md                 # 详细使用指南
 ├── README.md                    # 英文说明
@@ -256,7 +267,7 @@ x-article-publisher-skill/
 A: X Articles 是 Premium Plus 订阅专属功能，普通用户无法使用。
 
 **Q: 支持 Windows/Linux 吗？**
-A: 目前仅支持 macOS。欢迎贡献跨平台剪贴板支持的 PR。
+A: Windows 已支持 (v1.2)。Linux 支持仍在开发中，欢迎贡献 PR！
 
 **Q: 图片上传失败怎么办？**
 A: 检查：路径是否正确、格式是否支持（jpg/png/gif/webp）、网络是否稳定。
@@ -283,6 +294,13 @@ A: `browser_wait_for textGone="..."` 会在文字消失时立即返回。`time` 
 
 ## 更新日志
 
+### v1.2.0 (2025-01)
+- **分割线支持**：识别 Markdown 中的 `---`，通过 X Articles 菜单插入
+- **表格转图片**：新增 `table_to_image.py` 脚本，将表格转为 PNG
+- **Mermaid 支持**：文档说明如何使用 `mmdc` 转换图表
+- **YAML 头部跳过**：自动跳过 Markdown 文件开头的 frontmatter
+- **Windows 支持**：跨平台剪贴板操作（pywin32 + clip-util）
+
 ### v1.1.0 (2025-12)
 - **Block-index 定位**：用精确的元素索引替代文字匹配
 - **反向插入顺序**：防止多图插入时的索引偏移
@@ -307,7 +325,22 @@ MIT License - 见 [LICENSE](LICENSE)
 
 ---
 
+## 致谢
+
+v1.2.0 的新功能参考并借鉴自：
+
+- **[sugarforever/01coder-agent-skills](https://github.com/sugarforever/01coder-agent-skills)** — 其中的 `publish-x-article` 技能贡献了以下功能思路：
+  - 分割线检测与菜单插入
+  - 表格转图片脚本
+  - Mermaid 图表支持文档
+  - YAML frontmatter 处理
+  - Windows 剪贴板实现
+
+感谢社区成员在本项目基础上的改进和贡献！
+
+---
+
 ## 贡献
 
 - **Issues**：报告 Bug 或提出功能建议
-- **PR**：欢迎贡献代码，特别是 Windows/Linux 支持
+- **PR**：欢迎贡献代码，特别是 Linux 支持
